@@ -117,6 +117,22 @@ float op_sdiff(float d1, float d2, float k) {
   return max(d1, -d2) + h*h*k/4.0;
 }
 
+// transformations
+
+// convert from world_pos to local_pos, where the local->world transform
+// is a rotation about an axis then a translate
+vec3 local_pos(vec3 world_pos, vec3 axis, float angle, vec3 trans) {
+  // rotation using Rodrigue's rotation formula (see Wikipedia)
+  axis = normalize(axis);
+  mat3 K = mat3(vec3(0, axis.z, -axis.y), vec3(-axis.z, 0, axis.x), vec3(axis.y, -axis.x, 0.0));
+  mat3 rotation_mat = mat3(1.0) + sin(angle)*K + (1.0-cos(angle))*K*K;
+  // the local to world transform
+  mat4 transform = mat4(rotation_mat);
+  transform[3] = vec4(trans, 1.0);
+  vec4 local_pos = inverse(transform) * vec4(world_pos, 1.0);
+  return local_pos.xyz;
+}
+
 float dot2(vec3 v) {
   return dot(v, v);
 }
@@ -175,6 +191,7 @@ float sdf_for_object_old(float obj_id, vec3 pos) {
   return 0.0;
 }
 
+// For testing and debugging
 float sdf_for_object(float obj_id, vec3 pos) {
   switch (int(obj_id)) {
   case 0: {
@@ -239,6 +256,50 @@ float sdf_for_object(float obj_id, vec3 pos) {
     {
       float d_diff = op_sdiff(sd_box(pos, vec3(4.0,0.5,4.0)), sd_sphere(pos, 2.0), 0.2);
       d = op_union(d, d_diff);
+    }
+    */
+
+    // transformations
+    /*
+    {
+      // unif scale
+      float scale = 2.0;
+      d = op_union(d, sd_sphere(pos / scale, 1.0) * scale);
+    }
+    */
+    /*
+    {
+      // rotate and translate
+      vec3 local = local_pos(pos, vec3(0.0,1.0,0.0), pi/4.0, vec3(5.0));  
+      d = op_union(d, sd_box(local, vec3(1.0)));
+    }
+    */
+    // axes
+    {
+      float len = 20.0;
+      float cap_r = 0.05;
+      d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(1.0,0.0,0.0), cap_r));
+      d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(0.0,1.0,0.0), cap_r));
+      d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(0.0,0.0,1.0), cap_r));
+    }
+    /*
+    // symmetry
+    {
+      vec3 sym_pos = vec3(abs(pos.x), abs(pos.y), pos.z);
+      d = op_union(d, sd_sphere(sym_pos - vec3(3.0), 0.5)); 
+    }
+    */
+    // repetition
+    {
+      vec3 rep_pos = vec3(mod(pos.x, 10.0), pos.y, mod(pos.z,4.0)) - vec3(5.0,0.0,2.0);  
+      d = op_union(d, sd_sphere(rep_pos, 2.0));
+    }
+    /*
+    // distortion
+    {
+      float d1 = sd_sphere(pos, 2.0);
+      float d2 = 0.1*(sin(10.0*pos.x)+sin(10.0*pos.y)+sin(10.0*pos.z));
+      d = op_union(d, d1 + d2);
     }
     */
 
@@ -332,22 +393,27 @@ vec2 world_intersect(vec3 ro, vec3 rd) {
   }
   int num_active = num_objects;
 
-  // TODO - specify a min and max t
-  float t = 0.0;
-  int max_steps = 64;
+  float t_min = 0.1;
+  float t_max = 1000.0;
+  int max_steps = 200;
   float min_step = 0.001;
+  // stores (t, obj_id)
+  vec2 result = vec2(t_min, -1);
   for (int i = 0; i < max_steps; ++i) {
-    vec3 pt = ro + t * rd;
+    vec3 pt = ro + result.x * rd;
     vec2 dist_result = compute_dist(pt, active_objects, num_active);
     float obj_dist = dist_result.x;
-    float obj_id = dist_result.y;
-    if (abs(obj_dist) < 0.001) {
-      // TODO - lerp with the previous value of t, perhaps
-      return vec2(t, obj_id);  
+    result.y = dist_result.y;
+    // reduce precision of intersection check as distance increases
+    if (abs(obj_dist) < 0.0001*result.x || result.x > t_max) {
+      break;
     }
-    t += max(obj_dist, min_step);
+    result.x += max(obj_dist, min_step);
   }
-  return vec2(0.0, -1.0);
+  if (result.x > t_max) {
+    result.y = -1.0;
+  }
+  return result;
 }
 
 void ray_for_pixel(vec2 ndc, inout vec3 ro, inout vec3 rd) {
