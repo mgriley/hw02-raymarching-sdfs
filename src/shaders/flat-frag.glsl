@@ -18,7 +18,7 @@ struct AABB {
 
 // SDF functions
 
-const int num_objects = 1;
+const int num_objects = 2;
 
 const vec3 sphere_center = vec3(0.0);
 const vec3 sphere_center_b = vec3(10.0);
@@ -290,10 +290,12 @@ float sdf_for_object(float obj_id, vec3 pos) {
     }
     */
     // repetition
+    /*
     {
       vec3 rep_pos = vec3(mod(pos.x, 10.0), pos.y, mod(pos.z,4.0)) - vec3(5.0,0.0,2.0);  
       d = op_union(d, sd_sphere(rep_pos, 2.0));
     }
+    */
     /*
     // distortion
     {
@@ -302,8 +304,15 @@ float sdf_for_object(float obj_id, vec3 pos) {
       d = op_union(d, d1 + d2);
     }
     */
+    // ambient occlusion
+    {
+      d = op_union(d, sd_sphere(pos - vec3(0.0,1.0,0.0), 1.0));
+    }
 
     return d;
+  }
+  case 1: {
+    return sd_box(pos - vec3(0.0,-1.0,0.0), vec3(4.0,1.0,4.0));
   }
   }
 }
@@ -325,37 +334,20 @@ vec3 world_normal(float obj_id, vec3 pos) {
   return normal;
 }
 
-vec3 world_color(float obj_id, vec3 pos, vec3 normal) {
-  vec3 material_color = vec3(0.5, 0.0, 0.0);
-  switch (int(obj_id)) {
-    case 0:
-      material_color = vec3(0.5, 0.0, 0.0);
-      break;
-    case 1:
-      material_color = vec3(0.0, 0.5, 0.0);
-      break;
-    case 2:
-      material_color = vec3(0.0, 0.0, 0.5);
-      break;
-    case 6:
-      material_color = vec3(0.2);
-      break;
+vec2 compute_dist(vec3 pos) {
+  vec2 min_dist = vec2(1e10, -1);
+  for (int i = 0; i < num_objects; ++i) {
+    float obj_id = float(i);
+    float obj_dist = sdf_for_object(obj_id, pos);  
+    if (obj_dist < min_dist.x) {
+      min_dist = vec2(obj_dist, obj_id);
+    }
   }
-
-  vec3 light_dir = normalize(vec3(-1.0, 1.0, -1.0));
-  float diffuse_factor = clamp(dot(light_dir, normal), 0.0, 1.0);
-  float ambient_factor = 0.2;
-
-  return material_color * (diffuse_factor + ambient_factor);
-
-  //return vec3(1.0) * (normal.x + 1.0) * 0.5;
+  return min_dist;
 }
 
-vec3 background_color(vec3 ro, vec3 rd) {
-  return vec3(0.5);
-}
-
-vec2 compute_dist(vec3 pos,
+// TODO - remove if unused
+vec2 compute_dist_old(vec3 pos,
   float[num_objects] active_objs, int num_active) {
 
   vec2 min_dist = vec2(1e10, -1);
@@ -401,7 +393,9 @@ vec2 world_intersect(vec3 ro, vec3 rd) {
   vec2 result = vec2(t_min, -1);
   for (int i = 0; i < max_steps; ++i) {
     vec3 pt = ro + result.x * rd;
-    vec2 dist_result = compute_dist(pt, active_objects, num_active);
+    // TODO - remove if unused
+    //vec2 dist_result = compute_dist(pt, active_objects, num_active);
+    vec2 dist_result = compute_dist(pt);
     float obj_dist = dist_result.x;
     result.y = dist_result.y;
     // reduce precision of intersection check as distance increases
@@ -414,6 +408,52 @@ vec2 world_intersect(vec3 ro, vec3 rd) {
     result.y = -1.0;
   }
   return result;
+}
+
+float compute_ao(vec3 pos, vec3 nor) {
+  float occ = 0.0;
+  float weight = 1.0;
+  float delta_nor = 0.4 / 5.0;
+  for (int i = 0; i < 5; ++i) {
+    vec3 sample_pos = pos + nor * float(i) * delta_nor; 
+    vec2 dist_result = compute_dist(sample_pos);
+    occ += weight * (float(i)*delta_nor - dist_result.x);
+    weight *= 0.7;
+  }
+  return clamp(1.0 - 2.0 * occ, 0.0, 1.0);
+}
+
+vec3 world_color(float obj_id, vec3 pos, vec3 normal) {
+  vec3 material_color = vec3(0.5, 0.0, 0.0);
+  switch (int(obj_id)) {
+    case 0:
+      material_color = vec3(0.5, 0.0, 0.0);
+      break;
+    case 1:
+      material_color = vec3(0.5);
+      break;
+    case 2:
+      material_color = vec3(0.0, 0.0, 0.5);
+      break;
+    case 6:
+      material_color = vec3(0.2);
+      break;
+  }
+
+  vec3 light_dir = normalize(vec3(-1.0, 1.0, -1.0));
+  float diffuse_factor = clamp(dot(light_dir, normal), 0.0, 1.0);
+  float ambient_factor = 0.2;
+  float occ = compute_ao(pos, normal);
+
+  return material_color * (diffuse_factor + ambient_factor) * occ;
+  
+  // for debugging:
+  //return vec3(1.0) * occ;
+  //return vec3(1.0) * (normal.x + 1.0) * 0.5;
+}
+
+vec3 background_color(vec3 ro, vec3 rd) {
+  return vec3(0.5);
 }
 
 void ray_for_pixel(vec2 ndc, inout vec3 ro, inout vec3 rd) {
