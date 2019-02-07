@@ -18,7 +18,7 @@ struct AABB {
 
 // SDF functions
 
-const int num_objects = 2;
+const int num_objects = 1;
 
 const vec3 sphere_center = vec3(0.0);
 const vec3 sphere_center_b = vec3(10.0);
@@ -71,6 +71,50 @@ float sd_cylinder(vec3 p, vec2 span) {
 vec4 op_elongate(vec3 pos, vec3 extents) {
   vec3 q = abs(pos) - extents;
   return vec4(max(q, 0.0), min(max(max(extents.x, extents.y), extents.z), 0.0));
+}
+
+float op_round(float d, float round_amt) {
+  return d - round_amt;
+}
+
+// assume profile_dist is the distance to the 2d profile
+// on the xz plane
+float op_extrude(vec3 pos, float profile_dist, float span) {
+  vec2 w = vec2(profile_dist, abs(pos.y) - span);
+  return length(max(w, 0.0)) + min(max(w.x, w.y), 0.0);
+}
+
+// return the position to pass to a 2d sdf when that sdf for that
+// sdf to be swept around the y axis
+vec2 op_revolution(vec3 pos, float sweep_radius) {
+  return vec2(length(pos.xz) - sweep_radius, pos.y);
+}
+
+float op_union(float d1, float d2) {
+  return min(d1, d2);
+}
+
+float op_intersect(float d1, float d2) {
+  return max(d1, d2);
+}
+
+float op_diff(float d1, float d2) {
+  return max(d1, -d2);
+}
+
+float op_sunion(float d1, float d2, float k) {
+  float h = max(1.0 - abs(d1 - d2) / k, 0.0);
+  return min(d1, d2) - h*h*k/4.0;
+}
+
+float op_sintersect(float d1, float d2, float k) {
+  float h = max(1.0 - abs(d1 - d2) / k, 0.0);
+  return max(d1, d2) + h*h*k/4.0;
+}
+
+float op_sdiff(float d1, float d2, float k) {
+  float h = max(1.0 - abs(d1 + d2) / k, 0.0);
+  return max(d1, -d2) + h*h*k/4.0;
 }
 
 float dot2(vec3 v) {
@@ -134,13 +178,71 @@ float sdf_for_object_old(float obj_id, vec3 pos) {
 float sdf_for_object(float obj_id, vec3 pos) {
   switch (int(obj_id)) {
   case 0: {
+    /*
     // elongation
+    {
     vec4 elo = op_elongate(pos, vec3(2.0, 1.0, 1.0));
     return elo.w + sd_sphere(elo.xyz, 1.0);
-  }
-  case 1: {
+    }
+    {
     vec4 elo = op_elongate(pos, vec3(3.0, 0.0, 3.0));
     return elo.w + sd_torus(elo.xyz, 1.0, 0.2);
+    }
+    */
+
+    float d = 1e10;
+
+    // rounding
+    /*
+    d = min(d, sd_box(pos, vec3(1.0)));
+    d = min(d, op_round(sd_box(pos - vec3(4.0, 0.0, 0.0), vec3(1.0)), 0.5));
+    */
+
+    // extrusion
+    /*
+    float prof_dist = sd_torus(vec3(pos.x, 0.0, pos.z), 2.0, 0.5);
+    d = min(d, op_extrude(pos, prof_dist, 3.0));
+    */
+
+    // revolution
+    /*
+    vec2 rev_pos = op_revolution(pos, 4.0);
+    d = min(d, sd_box(vec3(rev_pos.x, 0, rev_pos.y), vec3(1.0, 1.0, 1.0)));
+    */
+
+    // intersect
+    /*
+    float d_inter = op_intersect(sd_box(pos, vec3(1.0)), sd_sphere(pos, 1.25)); 
+    d = op_union(d, d_inter);
+    */
+
+    // diff
+    /*
+    float d_diff = op_diff(sd_box(pos, vec3(1.0)), sd_sphere(pos, 1.25));
+    d = op_union(d, d_diff);
+    */
+
+    // smooth operations
+    /*
+    {
+      float d_union = op_sunion(sd_box(pos, vec3(1.0)), sd_sphere(pos - vec3(0.0, 1.0, 0.0), 0.5), 0.5);
+      d = op_union(d, d_union);
+    }
+    */
+    /*
+    {
+      float d_inter = op_sintersect(sd_box(pos, vec3(1.0)), sd_sphere(pos - vec3(0.0, 1.0, 0.0), 0.5), 0.1);
+      d = op_union(d, d_inter);
+    }
+    */
+    /*
+    {
+      float d_diff = op_sdiff(sd_box(pos, vec3(4.0,0.5,4.0)), sd_sphere(pos, 2.0), 0.2);
+      d = op_union(d, d_diff);
+    }
+    */
+
+    return d;
   }
   }
 }
@@ -195,7 +297,7 @@ vec3 background_color(vec3 ro, vec3 rd) {
 vec2 compute_dist(vec3 pos,
   float[num_objects] active_objs, int num_active) {
 
-  vec2 min_dist = vec2(100000.0, -1);
+  vec2 min_dist = vec2(1e10, -1);
   for (int i = 0; i < num_active; ++i) {
     float obj_id = active_objs[i];
     float obj_dist = sdf_for_object(obj_id, pos);  
@@ -230,6 +332,7 @@ vec2 world_intersect(vec3 ro, vec3 rd) {
   }
   int num_active = num_objects;
 
+  // TODO - specify a min and max t
   float t = 0.0;
   int max_steps = 64;
   float min_step = 0.001;
@@ -238,7 +341,7 @@ vec2 world_intersect(vec3 ro, vec3 rd) {
     vec2 dist_result = compute_dist(pt, active_objects, num_active);
     float obj_dist = dist_result.x;
     float obj_id = dist_result.y;
-    if (obj_dist - 0.0001 < 0.0) {
+    if (abs(obj_dist) < 0.001) {
       // TODO - lerp with the previous value of t, perhaps
       return vec2(t, obj_id);  
     }
