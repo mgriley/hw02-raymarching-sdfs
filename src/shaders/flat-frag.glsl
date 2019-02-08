@@ -29,9 +29,16 @@ float sd_sphere(vec3 p, float r) {
   return length(p) - r;
 }
 
+// span are the half-lens 
 float sd_box(vec3 p, vec3 span) {
   vec3 d = abs(p) - span;
   return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);
+}
+
+// positions the box such that the point anchor*span is at the origin
+// in this case span are the full-lens
+float sd_box(vec3 p, vec3 full_span, vec3 anchor) {
+  return sd_box(p + full_span*(anchor - vec3(0.5)), 0.5*full_span);
 }
 
 // path circle is on xz plane
@@ -178,10 +185,22 @@ float dot2(vec3 v) {
   return dot(v, v);
 }
 
+// some helpers
+
+float sd_tube(vec3 pos, vec3 span, vec3 anchor, vec3 offset) {
+  // NB: doesn't play well with the anchor is all cases, be careful
+  float d = sd_box(pos, span, anchor);
+  return op_diff(d, sd_box(pos, span - offset, anchor));
+}
+
 // Engine functions
 
+vec2 update_res(vec2 cur_res, float d, float obj_id) {
+  return (d < cur_res.x) ? vec2(d, obj_id) : cur_res;
+}
+
 // For testing and debugging
-vec2 world_sdf(vec3 pos) {
+vec2 world_sdf_test(vec3 pos) {
   float d = 1e10;
   d = op_union(d, sd_box(pos - vec3(0.0,-1.0,0.0), vec3(4.0,1.0,4.0)));
 
@@ -332,6 +351,12 @@ vec2 world_sdf(vec3 pos) {
     d = op_union(d, sd_sphere(rev_pos - vec3(4.0,0.0,0.0), 1.0));
   }
   */
+  // anchored box
+  /*
+  {
+    d = op_union(d, sd_box(pos, vec3(4.0,1.0,1.0), vec3(0.5,0.0,1.0)));
+  }
+  */
 
   if (d < res.x) {
     res.x = d;
@@ -341,11 +366,76 @@ vec2 world_sdf(vec3 pos) {
   return res;
 }
 
-/*
-vec2 world_sdf_new(vec3 pos) {
-  float d = 1e10;          
+const float GreyId = 0.0;
+const float RedId = 1.0;
+const float CastleId = 2.0;
+
+float turret_sdf(vec3 pos) {
+  float d = 1e10;
+  float slen = 4.0;
+  vec3 tur_span = vec3(slen,15.0,slen);
+  vec3 offset = vec3(0.25,-0.25,0.25);
+  d = op_union(d, sd_tube(pos, tur_span, vec3(0.5,0.0,0.5), offset));
+
+  // windows
+  vec3 rev_pos = revolve(pos, 4);
+  vec3 m_pos = mirror(rev_pos, vec3(0.0), vec3(0.0,0.0,1.0));
+  vec3 win_pos = vec3(0.0, 12.5, 1.0);
+  d = op_sdiff(d, sd_box(m_pos - win_pos, vec3(slen+1.0,2.0,0.5), vec3(0.0,0.5,0.5)), 0.1);
+
+  return d;
 }
-*/
+
+vec2 castle_sdf(vec3 pos, vec2 res) {
+  float d = res.x;
+
+  float main_len = 30.0;
+  float main_h = 10.0;
+  vec3 main_offset = vec3(1.0,-0.25,1.0);
+  d = op_union(d, sd_tube(pos, vec3(main_len,main_h,main_len), vec3(0.5,0.0,0.5), main_offset));
+  
+  vec3 m_pos = mirror(pos, vec3(0.0), vec3(0.0,0.0,1.0));
+  m_pos = mirror(m_pos, vec3(0.0), vec3(1.0,0.0,0.0));
+  vec3 turret_offset = vec3(main_len*0.5, 0.0, main_len*0.5);
+  d = op_union(d, turret_sdf(m_pos - turret_offset));
+  
+  return update_res(res, d, CastleId);
+}
+
+vec2 ground_sdf(vec3 pos, vec2 res) {
+  float d = res.x;
+
+  d = op_union(d, sd_plane(pos, vec3(0.0), vec3(0.0,1.0,0.0)));
+  //d = op_union(d, sd_box(pos, vec3(100.0, 10.0, 100.0), vec3(0.5,1.0,0.5)));
+  float moat_d = sd_torus(pos, 35.0, 5.0);
+  d = op_sdiff(d, moat_d, 3.0);
+
+  res = update_res(res, d, GreyId);
+  return res;
+}
+
+vec2 debug_sdf(vec3 pos, vec2 res) {
+  // axes
+  float d = res.x;
+  float len = 20.0;
+  float cap_r = 0.05;
+  d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(1.0,0.0,0.0), cap_r));
+  d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(0.0,1.0,0.0), cap_r));
+  d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(0.0,0.0,1.0), cap_r));
+  res = update_res(res, d, RedId);
+  return res;
+}
+
+vec2 world_sdf(vec3 pos) {
+  float d = 1e10;          
+  vec2 res = vec2(d, 0.0);
+
+  res = debug_sdf(pos, res);
+  res = ground_sdf(pos, res);
+  res = castle_sdf(pos, res);
+
+  return res;
+}
 
 vec3 world_normal(float obj_id, vec3 pos) {
   vec3 normal = vec3(0.0, 1.0, 0.0);
@@ -431,17 +521,14 @@ float compute_ao(vec3 pos, vec3 nor) {
 vec3 world_color(float obj_id, vec3 pos, vec3 normal) {
   vec3 material_color = vec3(0.5, 0.0, 0.0);
   switch (int(obj_id)) {
-    case 0:
-      material_color = vec3(0.5, 0.0, 0.0);
-      break;
-    case 1:
+    case int(GreyId):
       material_color = vec3(0.5);
       break;
-    case 2:
-      material_color = vec3(0.0, 0.0, 0.5);
+    case int(RedId):
+      material_color = vec3(0.5, 0.0, 0.0);
       break;
-    case 6:
-      material_color = vec3(0.2);
+    case int(CastleId):
+      material_color = vec3(0.6);
       break;
   }
 
