@@ -23,105 +23,6 @@ const vec3 sphere_center_b = vec3(10.0);
 const vec3 box_center = vec3(-4.0, 0.0, 10.0);
 const vec3 torus_center = vec3(4.0, 0.0, 10.0);
 
-// Noise functions
-
-float random1( vec2 p , vec2 seed) {
-  return fract(sin(dot(p + seed, vec2(127.1, 311.7))) * 43758.5453);
-}
-
-float random1( vec3 p , vec3 seed) {
-  return fract(sin(dot(p + seed, vec3(987.654, 123.456, 531.975))) * 85734.3545);
-}
-
-vec2 random2( vec2 p , vec2 seed) {
-  return fract(sin(vec2(dot(p + seed, vec2(311.7, 127.1)), dot(p + seed, vec2(269.5, 183.3)))) * 85734.3545);
-}
-
-float surflet_noise_3d(vec3 in_pt, vec2 seed) {
-  vec2 p = in_pt.xy;
-  p += vec2(in_pt.z, 0.0);
-
-  // use the surface-lets technique
-  // scale is the length of a cell in the perlin grid
-  float scale = 10.0;
-  vec2 base = floor(p / scale);
-  vec2 corners[4] = vec2[4](
-    base,
-    base + vec2(1.0, 0.0),
-    base + vec2(0.0, 1.0),
-    base + vec2(1.0, 1.0)
-  );
-  float sum = 0.0;
-  for (int i = 0; i < 4; ++i) {
-    vec2 corner = scale * corners[i];
-
-    vec2 corner_dir = 2.0 * random2(corner, seed) - vec2(1.0);
-    // rotate the vector by the third component
-    float angle = in_pt.z;
-    mat2 rotate_matrix = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
-    corner_dir = rotate_matrix * corner_dir;
-
-    vec2 delta = p - corner;
-    // this is the height if we were only on a slope of
-    // magnitude length(corner_dir) in the direction of corner_dir
-    float sloped_height = dot(delta, corner_dir);
-    float weight = 1.0 - smoothstep(0.0, scale, length(delta));
-    sum += 0.25 * weight * sloped_height;
-  }
-  return (sum + 1.0) / 2.0;
-}
-
-float surflet_noise(vec2 p, vec2 seed) {
-  // use the surface-lets technique
-  // scale is the length of a cell in the perlin grid
-  float scale = 10.0;
-  vec2 base = floor(p / scale);
-  vec2 corners[4] = vec2[4](
-    base,
-    base + vec2(1.0, 0.0),
-    base + vec2(0.0, 1.0),
-    base + vec2(1.0, 1.0)
-  );
-  float sum = 0.0;
-  for (int i = 0; i < 4; ++i) {
-    // this gives decent noise, too
-    /*
-    vec2 corner = scale * corners[i];
-    float corner_h = random1(corner, seed);
-    vec2 delta = corner - p;
-    float weight = 1.0 - smoothstep(0.0, scale, length(delta));
-    sum += weight * corner_h;
-    */
-
-    vec2 corner = scale * corners[i];
-    vec2 corner_dir = 2.0 * random2(corner, seed) - vec2(1.0);
-    vec2 delta = p - corner;
-    // this is the height if we were only on a slope of
-    // magnitude length(corner_dir) in the direction of corner_dir
-    float sloped_height = dot(delta, corner_dir);
-    float weight = 1.0 - smoothstep(0.0, scale, length(delta));
-    sum += 0.25 * weight * sloped_height;
-  }
-  return (sum + 1.0) / 2.0;
-}
-
-float some_noise(vec2 p, vec2 seed) {
-  float noise = surflet_noise(p, seed);
-  return 10.0 * (noise - 0.5) * 2.0;
-}
-
-float fbm_noise(vec2 p, vec2 seed) {
-  // Note: using surflet_noise makes this slowww
-  float sum = 0.0;
-  float persistence = 0.5;
-  for (int i = 0; i < 2; ++i) {
-    float amp = pow(persistence, float(i));
-    float freq = pow(2.0, float(i));
-    sum += surflet_noise(p * freq, seed) * amp;
-  }
-  return sum;
-}
-
 // SDF functions
 
 float sd_sphere(vec3 p, float r) {
@@ -470,7 +371,6 @@ const float RedId = 1.0;
 const float CastleId = 2.0;
 const float BridgeId = 3.0;
 const float DoorId = 4.0;
-const float GroundId = 5.0;
 
 float turret_sdf(vec3 pos) {
   float d = 1e10;
@@ -518,7 +418,7 @@ vec2 bridge_sdf(vec3 pos, vec2 res) {
   float d = res.x;
 
   // draw bridge
-  float bridge_angle = 0.5*(sin(u_Time/10.0) + 1.0) * pi/2.0;
+  float bridge_angle = 0.0;
   vec3 lpos = local_pos(pos, vec3(0.0,0.0,1.0), bridge_angle, vec3(0.5*30.0,0.0,0.0));
   d = op_union(d, sd_box(lpos, vec3(10.0,0.2,4.0), vec3(0.0,0.0,0.5)));
 
@@ -528,7 +428,7 @@ vec2 bridge_sdf(vec3 pos, vec2 res) {
 vec2 door_sdf(vec3 pos, vec2 res) {
   float d = res.x;
 
-  d = op_union(d, sd_box(pos - vec3(0.5*30.0,0.0,0.0), vec3(0.05,6.0,4.0), vec3(0.0,0.0,0.5)));
+  d = op_union(d, sd_box(pos - vec3(0.5*30.0,0.0,0.0), vec3(0.1,6.0,4.0), vec3(0.0,0.0,0.5)));
 
   return update_res(res, d, DoorId);
 }
@@ -542,7 +442,7 @@ vec2 ground_sdf(vec3 pos, vec2 res) {
   float moat_d = elo.w + sd_torus(elo.xyz, 2.0, 1.0);
   d = op_sdiff(d, moat_d, 1.0);
 
-  res = update_res(res, d, GroundId);
+  res = update_res(res, d, GreyId);
   return res;
 }
 
@@ -562,7 +462,7 @@ vec2 world_sdf(vec3 pos) {
   float d = 1e10;          
   vec2 res = vec2(d, 0.0);
 
-  //res = debug_sdf(pos, res);
+  res = debug_sdf(pos, res);
   res = ground_sdf(pos, res);
   res = castle_sdf(pos, res);
   res = bridge_sdf(pos, res);
@@ -664,22 +564,12 @@ vec3 world_color(float obj_id, vec3 pos, vec3 normal) {
     case int(CastleId):
       material_color = vec3(0.6);
       break;
-    case int(BridgeId): {
-      float factor = 1.0-pow(smoothstep(0.0,1.0,sin(10.0*pos.z)), 50.0);
-      material_color = factor*vec3(0.4,0.3,0.2);
+    case int(BridgeId):
+      material_color = vec3(0.8);
       break;
-    }
     case int(DoorId):
-      material_color = vec3(0.4,0.3,0.2);
+      material_color = vec3(0.4, 0.3, 0.1);
       break;
-    case int(GroundId): {
-      float noise = surflet_noise(5.0*pos.xz, vec2(23.1, 781.0));
-      vec3 grass_color = mix(vec3(0.13,0.39,0.11), vec3(0.07,0.24,0.06), noise);
-      vec3 slope_color = mix(vec3(0.48,0.37,0.14), vec3(0.30,0.22,0.08), noise);
-      vec3 col = mix(slope_color, grass_color, smoothstep(0.0,1.0,normal.y));
-      material_color = col;
-      break;
-    }
   }
 
   vec3 light_dir = normalize(vec3(-1.0, 1.0, -1.0));
@@ -695,11 +585,11 @@ vec3 world_color(float obj_id, vec3 pos, vec3 normal) {
 }
 
 vec3 background_color(vec3 ro, vec3 rd) {
-  return vec3(0.29,0.56,0.67);
+  return vec3(0.5);
 }
 
-void ray_for_pixel(vec3 eye, vec2 ndc, inout vec3 ro, inout vec3 rd) {
-  vec3 look_vec = u_Ref - eye;
+void ray_for_pixel(vec2 ndc, inout vec3 ro, inout vec3 rd) {
+  vec3 look_vec = u_Ref - u_Eye;
   float len = length(look_vec);
   float aspect_ratio = u_Dimensions.x / u_Dimensions.y;
   float v = tan(v_fov) * len;
@@ -707,26 +597,13 @@ void ray_for_pixel(vec3 eye, vec2 ndc, inout vec3 ro, inout vec3 rd) {
   vec3 v_vec = ndc.y * v * u_Up;
   vec3 h_vec = ndc.x * h * cross(look_vec / len, u_Up);
 
-  ro = eye;
-  rd = normalize((u_Ref + h_vec + v_vec) - eye);
-}
-
-vec3 compute_eye() {
-  return u_Eye;
-  // this looks awful
-  // animate the camera around the scene
-  /*
-  float angle = u_Time/200.0;
-  vec2 eye_xz = mat2(vec2(cos(angle), sin(angle)), vec2(-sin(angle), cos(angle))) * u_Eye.xz;
-  return vec3(eye_xz.x, u_Eye.y, eye_xz.y);
-  */
+  ro = u_Eye;
+  rd = normalize((u_Ref + h_vec + v_vec) - u_Eye);
 }
 
 void main() {
   vec3 ro, rd;
-
-  vec3 eye = compute_eye();  
-  ray_for_pixel(eye, fs_Pos, ro, rd);
+  ray_for_pixel(fs_Pos, ro, rd);
 
   vec2 intersect = world_intersect(ro, rd);
   float t = intersect.x;
@@ -743,5 +620,6 @@ void main() {
   //vec3 col = 0.5 * (rd + vec3(1.0));
 
   out_Col = vec4(color, 1.0);
+  //out_Col = vec4(0.5 * (fs_Pos + vec2(1.0)), 0.5 * (sin(u_Time * 3.14159 * 0.01) + 1.0), 1.0);
 }
 
