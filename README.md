@@ -4,29 +4,48 @@
 
 Matthew Riley\
 PennKey: matriley\
-Live at: https://mgriley.github.io/hw02-/
+Live at: https://mgriley.github.io/hw02-raymarching-sdfs/
 
 ![](demo_shot.png)
 
 ## Description:
 
-The terrain is generated in several stages. Each stage takes a StageState struct (containing height, color, normal, etc.) from the previous stage as input, modifies it, then passes it on to the next stage. This allows subsequent stages to adapt to changes made in earlier stages. There are currently only two stages. The first stage generates the height-map for the hexagon spires. It translates the plane position into a 2d space tightly tiled by hexagons, finds the center of the nearest hexagon, and then uses a 2d sdf to detect if the point is contained in the hexagon. The height and frequency of the hexagonal tiles is informed by a smooth 2d noise function. 
+The scene itself isn't impressive, but there are several sdf engine features that I'm proud of. The castle makes heavy use of the mirror and linear pattern functions, which are generalizations of the "symmetry" and "repetition" techniques mentioned in IQ's article on distance functions. The four turrets are actually mirrored single turrets, the turret windows are mirrored and revolved around the center of the turrets, and the ridges on the peaks of the turret are patterned along one dimension then mirrored twice to reproduce them along the entire perimeter.
 
-The second stage sets the height of the wave-like substance. It first reads the height from the StageState structure. If it is 0, we know that no hexagonal tile was drawn in the hexagon stage, so we set the height without overriding the geometry of any tiles. I used surface-let based 2d noise to set the height. That is, the height is the distance-weighted average of the 3d position of a 2d plane point projected on several different slopes/hills, where each "hill" is determined by a 2d vector (giving the hill's gradient) at a certain grid point.  
+Combination operations: op_union and op_diff are heavily used, as well as their smooth variations.
 
-The sky uses the same surface-let noise as stage 2, with a simple animation to pan the clouds across the horizon.
+Raymarch Optimization: Haven't yet implemented.
 
-## Stage 1 - Hexagonal Tiles
+Animation: The draw-bridge angle should animate.
 
-![](stage1_shot.png)
+Toolbox Functions: I did not use any for animation.
 
-## Stage 2 - Slopes
+Procedural Texturing: The "grass" uses gradient noise.
 
-![](stage2_shot.png)
+Shading: I compute the surface normal using the gradient technique. The inner edges of the moat use the surface normal to create a dirt appearance. Sadly I did not get around to adding water, so there is also grass along the bottom.
+
+Here are some features of the engine:
+
+* Elongation, rounding, extrusion, and revolution
+* Union, intersect, and difference, with smooth variations
+* mirror operator, to mirror across an arbitrary plane
+* repeat operator, to linearly repeat some geometry across many grid cells
+* revolve operator, to revolve some geometry around a point
+* local_pos operator, to rotate about an arbitrary axis then translate some geom
+* A very handy variation of the sd_box function that allows you to specify the anchor point of the box
+* AO using five-point method
 
 ## Sources
 
-I referred to the following articles on Inigo Quilez's website:
+https://www.iquilezles.org/www/material/nvscene2008/rwwtt.pdf
+https://www.iquilezles.org/www/articles/filteringrm/filteringrm.htm
+https://www.iquilezles.org/www/articles/normalsSDF/normalsSDF.htm
+https://www.iquilezles.org/www/articles/smin/smin.htm
+https://www.iquilezles.org/www/articles/raymarchingdf/raymarchingdf.htm
+https://www.iquilezles.org/www/articles/sdfmodeling/sdfmodeling.htm
 http://iquilezles.org/www/articles/distfunctions2d/distfunctions2d.htm
 http://iquilezles.org/www/articles/functions/functions.htm
+https://www.iquilezles.org/www/articles/functions/functions.htm
+https://www.shadertoy.com/view/4tByz3
+https://www.shadertoy.com/view/Xds3zN
 
