@@ -117,6 +117,29 @@ float op_sdiff(float d1, float d2, float k) {
   return max(d1, -d2) + h*h*k/4.0;
 }
 
+// mirror the given position across a plane to the side
+// that the plane_nor points at
+vec3 mirror(vec3 pos, vec3 plane_pt, vec3 plane_nor) {
+  // assume plane_nor is normalized
+  float proj = min(dot(pos - plane_pt, plane_nor), 0.0);
+  return pos - 2.0 * proj * plane_nor;
+}
+
+
+// for each component, take a if branch is 1 and b if branch is 0
+vec3 select(vec3 branch, vec3 a, vec3 b) {
+  return branch * a + (1.0 - branch) * b;
+}
+
+// linearly repeat the given position
+vec3 repeat(vec3 pos, vec3 origin, vec3 spacing, ivec3 count) {
+  vec3 int_part;
+  vec3 fract_part = modf((pos - origin) / spacing, int_part);
+  vec3 int_part_pos = max(sign(int_part), 0.0);
+  return spacing * (select(int_part_pos, max(int_part-vec3(count-ivec3(1)),0.0), int_part) + fract_part);
+}
+
+
 // transformations
 
 // convert from world_pos to local_pos, where the local->world transform
@@ -304,9 +327,32 @@ float sdf_for_object(float obj_id, vec3 pos) {
       d = op_union(d, d1 + d2);
     }
     */
+    /*
     // ambient occlusion
     {
       d = op_union(d, sd_sphere(pos - vec3(0.0,1.0,0.0), 1.0));
+    }
+    */
+    /*
+    // mirror
+    {
+      vec3 m_p = mirror(pos, vec3(0.0), vec3(1.0,0.0,0.0));
+      m_p = mirror(m_p, vec3(0.0,0.0,2.0), normalize(vec3(0.0, 0.0, -1.0)));
+      // NB: mirror orientation wouldn't matter if also mirrored the center of the
+      // sphere, I think. fine for now
+      d = op_union(d, sd_sphere(m_p - vec3(2.0,0.0,0.0), 1.0));
+    }
+    */
+    // linear pattern
+    /*
+    {
+      vec3 rep_pos = repeat(pos, vec3(0.0), vec3(2.0,2.0,2.0), ivec3(3,2,3));
+      d = op_union(d, sd_sphere(rep_pos - vec3(1.0), 1.0));
+      //d = op_union(d, sd_sphere(pos, 1.0));
+    }
+    */
+    // revolved pattern
+    {
     }
 
     return d;
