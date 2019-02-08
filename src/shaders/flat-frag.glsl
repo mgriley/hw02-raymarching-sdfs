@@ -132,13 +132,32 @@ vec3 select(vec3 branch, vec3 a, vec3 b) {
 }
 
 // linearly repeat the given position
+// the first grid cell is centered on the origin, each cell has extent "spacing",
+// and the numbers of cells is "count", extending in the positive direction
 vec3 repeat(vec3 pos, vec3 origin, vec3 spacing, ivec3 count) {
   vec3 int_part;
-  vec3 fract_part = modf((pos - origin) / spacing, int_part);
+  vec3 fract_part = modf((pos - (origin - 0.5*spacing)) / spacing, int_part);
   vec3 int_part_pos = max(sign(int_part), 0.0);
-  return spacing * (select(int_part_pos, max(int_part-vec3(count-ivec3(1)),0.0), int_part) + fract_part);
+  vec3 cell_pos = spacing * (select(int_part_pos, max(int_part-vec3(count-ivec3(1)),0.0), int_part) + fract_part);
+  // reposition the cell_pos such the center of the cell is the origin, not the min corner
+  // this allows modeling the repeated geom wrt the origin
+  return cell_pos - 0.5 * spacing;
 }
 
+vec3 repeat_evenly(vec3 pos, vec3 origin, vec3 span, ivec3 count) {
+  // choose a spacing that will evenly space the given number of items along the span
+  return repeat(pos, origin, span / max(vec3(count - ivec3(1)), 1.0), count); 
+}
+
+// revolve the point around the y axis, placing it in slice
+// centered about the x axis
+vec3 revolve(vec3 pos, int num_slices) {
+  float slice_span = 2.0*pi / float(num_slices);
+  float r = length(pos.xz);
+  float angle = mod(atan(pos.z, pos.x)+0.5*slice_span, slice_span) - 0.5*slice_span;
+  vec2 rotated_pos = r * vec2(cos(angle), sin(angle));
+  return vec3(rotated_pos.x, pos.y, rotated_pos.y);
+}
 
 // transformations
 
@@ -215,7 +234,7 @@ float sdf_for_object_old(float obj_id, vec3 pos) {
 }
 
 // For testing and debugging
-float sdf_for_object(float obj_id, vec3 pos) {
+float sdf_for_object_test(float obj_id, vec3 pos) {
   switch (int(obj_id)) {
   case 0: {
     /*
@@ -343,17 +362,27 @@ float sdf_for_object(float obj_id, vec3 pos) {
       d = op_union(d, sd_sphere(m_p - vec3(2.0,0.0,0.0), 1.0));
     }
     */
-    // linear pattern
     /*
+    // linear pattern
     {
-      vec3 rep_pos = repeat(pos, vec3(0.0), vec3(2.0,2.0,2.0), ivec3(3,2,3));
-      d = op_union(d, sd_sphere(rep_pos - vec3(1.0), 1.0));
-      //d = op_union(d, sd_sphere(pos, 1.0));
+      vec3 rep_pos = repeat(pos, vec3(0.0), vec3(1.0,1.0,2.0), ivec3(2,2,2));
+      d = op_union(d, sd_sphere(rep_pos, 0.5));
     }
     */
+    /*
+    // linear pattern even
+    {
+      vec3 rep_pos = repeat_evenly(pos, vec3(0.0), vec3(4.0,1.0,1.0), ivec3(4,1,1));
+      d = op_union(d, sd_sphere(rep_pos, 0.5));
+    }
+    */
+    /*
     // revolved pattern
     {
+      vec3 rev_pos = revolve(pos, 10);
+      d = op_union(d, sd_sphere(rev_pos - vec3(4.0,0.0,0.0), 1.0));
     }
+    */
 
     return d;
   }
