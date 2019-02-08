@@ -16,14 +16,14 @@ struct AABB {
   vec3 max;
 };
 
-// SDF functions
-
+// for testing:
 const int num_objects = 2;
-
 const vec3 sphere_center = vec3(0.0);
 const vec3 sphere_center_b = vec3(10.0);
 const vec3 box_center = vec3(-4.0, 0.0, 10.0);
 const vec3 torus_center = vec3(4.0, 0.0, 10.0);
+
+// SDF functions
 
 float sd_sphere(vec3 p, float r) {
   return length(p) - r;
@@ -125,7 +125,6 @@ vec3 mirror(vec3 pos, vec3 plane_pt, vec3 plane_nor) {
   return pos - 2.0 * proj * plane_nor;
 }
 
-
 // for each component, take a if branch is 1 and b if branch is 0
 vec3 select(vec3 branch, vec3 a, vec3 b) {
   return branch * a + (1.0 - branch) * b;
@@ -179,218 +178,174 @@ float dot2(vec3 v) {
   return dot(v, v);
 }
 
-// Not working. Issue may be that since it is planar there is no -ve part of the field
-// return to later.
-/*
-float sd_quad(vec3 p, vec3 a, vec3 span_u, vec3 span_v) {
-  // if projection is on quad, return dist to plane.
-  // otherwise ret the min dist to a line on the plane
-  vec3 pa = p - a;
-  vec3 pb = p - (a + span_v);
-  vec3 pc = p - (a + span_u + span_v);
-  vec3 pd = p - (a + span_u);
-  vec3 nor = cross(span_u, span_v);
-  return 
-    (
-      sign(dot(cross(span_v, nor), pa)) +
-      sign(dot(cross(span_u, nor), pb)) +
-      sign(dot(cross(-span_v, nor), pc)) +
-      sign(dot(cross(-span_u, nor), pd)) == 4.0
-    ) ? abs(dot(pa, normalize(nor))) :
-    sqrt(min(min(min(
-      dot2(pa - span_u * clamp(dot(pa, span_u) / dot2(span_u), 0.0, 1.0)),
-      dot2(pa - span_v * clamp(dot(pa, span_v) / dot2(span_v), 0.0, 1.0))),
-      dot2(pb - span_u * clamp(dot(pb, span_u) / dot2(span_u), 0.0, 1.0))),
-      dot2(pd - span_v * clamp(dot(pd, span_v) / dot2(span_v), 0.0, 1.0))))
-    ;
-}
-*/
-
 // Engine functions
 
-float sdf_for_object_old(float obj_id, vec3 pos) {
-  switch (int(obj_id)) {
-  case 0:
-    return sd_sphere(pos - sphere_center, 1.0);
-  case 1:
-    return sd_sphere(pos - sphere_center_b, 2.0);
-  case 2:
-    return sd_box(pos - box_center, vec3(2.0, 1.0, 1.0));
-  case 3:
-    return sd_torus(pos - torus_center, 2.0, 1.0);
-  case 4:
-    return sd_cylinder(pos - vec3(3.0,0.0,20.0), 1.0);
-  case 5:
-    return sd_cone(pos, vec2(1.0, 0.0));
-  case 6:
-    return sd_plane(pos, vec3(0.0, -3.0, 0.0), vec3(0.0, 1.0, 0.0));
-  case 7:
-    vec3 offset = vec3(4.0, 0.0, 4.0);
-    return sd_capsule(pos, offset, offset + vec3(0.0, 3.0, 0.0), 1.0);
-  case 8:
-    return sd_cylinder(pos - vec3(-2.0, 0.0, 4.0), vec2(1.0, 3.0));
-  }
-  return 0.0;
-}
-
 // For testing and debugging
-float sdf_for_object_test(float obj_id, vec3 pos) {
-  switch (int(obj_id)) {
-  case 0: {
-    /*
-    // elongation
-    {
-    vec4 elo = op_elongate(pos, vec3(2.0, 1.0, 1.0));
-    return elo.w + sd_sphere(elo.xyz, 1.0);
-    }
-    {
-    vec4 elo = op_elongate(pos, vec3(3.0, 0.0, 3.0));
-    return elo.w + sd_torus(elo.xyz, 1.0, 0.2);
-    }
-    */
+vec2 world_sdf(vec3 pos) {
+  float d = 1e10;
+  d = op_union(d, sd_box(pos - vec3(0.0,-1.0,0.0), vec3(4.0,1.0,4.0)));
 
-    float d = 1e10;
+  vec2 res = vec2(d, 1.0);
 
-    // rounding
-    /*
-    d = min(d, sd_box(pos, vec3(1.0)));
-    d = min(d, op_round(sd_box(pos - vec3(4.0, 0.0, 0.0), vec3(1.0)), 0.5));
-    */
+  // axes
+  {
+    float len = 20.0;
+    float cap_r = 0.05;
+    d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(1.0,0.0,0.0), cap_r));
+    d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(0.0,1.0,0.0), cap_r));
+    d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(0.0,0.0,1.0), cap_r));
+  }
+  /*
+  // elongation
+  {
+  vec4 elo = op_elongate(pos, vec3(2.0, 1.0, 1.0));
+  return elo.w + sd_sphere(elo.xyz, 1.0);
+  }
+  {
+  vec4 elo = op_elongate(pos, vec3(3.0, 0.0, 3.0));
+  return elo.w + sd_torus(elo.xyz, 1.0, 0.2);
+  }
+  */
 
-    // extrusion
-    /*
-    float prof_dist = sd_torus(vec3(pos.x, 0.0, pos.z), 2.0, 0.5);
-    d = min(d, op_extrude(pos, prof_dist, 3.0));
-    */
+  // rounding
+  /*
+  d = min(d, sd_box(pos, vec3(1.0)));
+  d = min(d, op_round(sd_box(pos - vec3(4.0, 0.0, 0.0), vec3(1.0)), 0.5));
+  */
 
-    // revolution
-    /*
-    vec2 rev_pos = op_revolution(pos, 4.0);
-    d = min(d, sd_box(vec3(rev_pos.x, 0, rev_pos.y), vec3(1.0, 1.0, 1.0)));
-    */
+  // extrusion
+  /*
+  float prof_dist = sd_torus(vec3(pos.x, 0.0, pos.z), 2.0, 0.5);
+  d = min(d, op_extrude(pos, prof_dist, 3.0));
+  */
 
-    // intersect
-    /*
-    float d_inter = op_intersect(sd_box(pos, vec3(1.0)), sd_sphere(pos, 1.25)); 
+  // revolution
+  /*
+  vec2 rev_pos = op_revolution(pos, 4.0);
+  d = min(d, sd_box(vec3(rev_pos.x, 0, rev_pos.y), vec3(1.0, 1.0, 1.0)));
+  */
+
+  // intersect
+  /*
+  float d_inter = op_intersect(sd_box(pos, vec3(1.0)), sd_sphere(pos, 1.25)); 
+  d = op_union(d, d_inter);
+  */
+
+  // diff
+  /*
+  float d_diff = op_diff(sd_box(pos, vec3(1.0)), sd_sphere(pos, 1.25));
+  d = op_union(d, d_diff);
+  */
+
+  // smooth operations
+  /*
+  {
+    float d_union = op_sunion(sd_box(pos, vec3(1.0)), sd_sphere(pos - vec3(0.0, 1.0, 0.0), 0.5), 0.5);
+    d = op_union(d, d_union);
+  }
+  */
+  /*
+  {
+    float d_inter = op_sintersect(sd_box(pos, vec3(1.0)), sd_sphere(pos - vec3(0.0, 1.0, 0.0), 0.5), 0.1);
     d = op_union(d, d_inter);
-    */
-
-    // diff
-    /*
-    float d_diff = op_diff(sd_box(pos, vec3(1.0)), sd_sphere(pos, 1.25));
+  }
+  */
+  /*
+  {
+    float d_diff = op_sdiff(sd_box(pos, vec3(4.0,0.5,4.0)), sd_sphere(pos, 2.0), 0.2);
     d = op_union(d, d_diff);
-    */
-
-    // smooth operations
-    /*
-    {
-      float d_union = op_sunion(sd_box(pos, vec3(1.0)), sd_sphere(pos - vec3(0.0, 1.0, 0.0), 0.5), 0.5);
-      d = op_union(d, d_union);
-    }
-    */
-    /*
-    {
-      float d_inter = op_sintersect(sd_box(pos, vec3(1.0)), sd_sphere(pos - vec3(0.0, 1.0, 0.0), 0.5), 0.1);
-      d = op_union(d, d_inter);
-    }
-    */
-    /*
-    {
-      float d_diff = op_sdiff(sd_box(pos, vec3(4.0,0.5,4.0)), sd_sphere(pos, 2.0), 0.2);
-      d = op_union(d, d_diff);
-    }
-    */
-
-    // transformations
-    /*
-    {
-      // unif scale
-      float scale = 2.0;
-      d = op_union(d, sd_sphere(pos / scale, 1.0) * scale);
-    }
-    */
-    /*
-    {
-      // rotate and translate
-      vec3 local = local_pos(pos, vec3(0.0,1.0,0.0), pi/4.0, vec3(5.0));  
-      d = op_union(d, sd_box(local, vec3(1.0)));
-    }
-    */
-    // axes
-    {
-      float len = 20.0;
-      float cap_r = 0.05;
-      d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(1.0,0.0,0.0), cap_r));
-      d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(0.0,1.0,0.0), cap_r));
-      d = op_union(d, sd_capsule(pos, vec3(0.0), len*vec3(0.0,0.0,1.0), cap_r));
-    }
-    /*
-    // symmetry
-    {
-      vec3 sym_pos = vec3(abs(pos.x), abs(pos.y), pos.z);
-      d = op_union(d, sd_sphere(sym_pos - vec3(3.0), 0.5)); 
-    }
-    */
-    // repetition
-    /*
-    {
-      vec3 rep_pos = vec3(mod(pos.x, 10.0), pos.y, mod(pos.z,4.0)) - vec3(5.0,0.0,2.0);  
-      d = op_union(d, sd_sphere(rep_pos, 2.0));
-    }
-    */
-    /*
-    // distortion
-    {
-      float d1 = sd_sphere(pos, 2.0);
-      float d2 = 0.1*(sin(10.0*pos.x)+sin(10.0*pos.y)+sin(10.0*pos.z));
-      d = op_union(d, d1 + d2);
-    }
-    */
-    /*
-    // ambient occlusion
-    {
-      d = op_union(d, sd_sphere(pos - vec3(0.0,1.0,0.0), 1.0));
-    }
-    */
-    /*
-    // mirror
-    {
-      vec3 m_p = mirror(pos, vec3(0.0), vec3(1.0,0.0,0.0));
-      m_p = mirror(m_p, vec3(0.0,0.0,2.0), normalize(vec3(0.0, 0.0, -1.0)));
-      // NB: mirror orientation wouldn't matter if also mirrored the center of the
-      // sphere, I think. fine for now
-      d = op_union(d, sd_sphere(m_p - vec3(2.0,0.0,0.0), 1.0));
-    }
-    */
-    /*
-    // linear pattern
-    {
-      vec3 rep_pos = repeat(pos, vec3(0.0), vec3(1.0,1.0,2.0), ivec3(2,2,2));
-      d = op_union(d, sd_sphere(rep_pos, 0.5));
-    }
-    */
-    /*
-    // linear pattern even
-    {
-      vec3 rep_pos = repeat_evenly(pos, vec3(0.0), vec3(4.0,1.0,1.0), ivec3(4,1,1));
-      d = op_union(d, sd_sphere(rep_pos, 0.5));
-    }
-    */
-    /*
-    // revolved pattern
-    {
-      vec3 rev_pos = revolve(pos, 10);
-      d = op_union(d, sd_sphere(rev_pos - vec3(4.0,0.0,0.0), 1.0));
-    }
-    */
-
-    return d;
   }
-  case 1: {
-    return sd_box(pos - vec3(0.0,-1.0,0.0), vec3(4.0,1.0,4.0));
+  */
+
+  // transformations
+  /*
+  {
+    // unif scale
+    float scale = 2.0;
+    d = op_union(d, sd_sphere(pos / scale, 1.0) * scale);
   }
+  */
+  /*
+  {
+    // rotate and translate
+    vec3 local = local_pos(pos, vec3(0.0,1.0,0.0), pi/4.0, vec3(5.0));  
+    d = op_union(d, sd_box(local, vec3(1.0)));
   }
+  */
+  
+  /*
+  // symmetry
+  {
+    vec3 sym_pos = vec3(abs(pos.x), abs(pos.y), pos.z);
+    d = op_union(d, sd_sphere(sym_pos - vec3(3.0), 0.5)); 
+  }
+  */
+  // repetition
+  /*
+  {
+    vec3 rep_pos = vec3(mod(pos.x, 10.0), pos.y, mod(pos.z,4.0)) - vec3(5.0,0.0,2.0);  
+    d = op_union(d, sd_sphere(rep_pos, 2.0));
+  }
+  */
+  /*
+  // distortion
+  {
+    float d1 = sd_sphere(pos, 2.0);
+    float d2 = 0.1*(sin(10.0*pos.x)+sin(10.0*pos.y)+sin(10.0*pos.z));
+    d = op_union(d, d1 + d2);
+  }
+  */
+  /*
+  // ambient occlusion
+  {
+    d = op_union(d, sd_sphere(pos - vec3(0.0,1.0,0.0), 1.0));
+  }
+  */
+  /*
+  // mirror
+  {
+    vec3 m_p = mirror(pos, vec3(0.0), vec3(1.0,0.0,0.0));
+    m_p = mirror(m_p, vec3(0.0,0.0,2.0), normalize(vec3(0.0, 0.0, -1.0)));
+    // NB: mirror orientation wouldn't matter if also mirrored the center of the
+    // sphere, I think. fine for now
+    d = op_union(d, sd_sphere(m_p - vec3(2.0,0.0,0.0), 1.0));
+  }
+  */
+  /*
+  // linear pattern
+  {
+    vec3 rep_pos = repeat(pos, vec3(0.0), vec3(1.0,1.0,2.0), ivec3(2,2,2));
+    d = op_union(d, sd_sphere(rep_pos, 0.5));
+  }
+  */
+  /*
+  // linear pattern even
+  {
+    vec3 rep_pos = repeat_evenly(pos, vec3(0.0), vec3(4.0,1.0,1.0), ivec3(4,1,1));
+    d = op_union(d, sd_sphere(rep_pos, 0.5));
+  }
+  */
+  /*
+  // revolved pattern
+  {
+    vec3 rev_pos = revolve(pos, 10);
+    d = op_union(d, sd_sphere(rev_pos - vec3(4.0,0.0,0.0), 1.0));
+  }
+  */
+
+  if (d < res.x) {
+    res.x = d;
+    res.y = 0.0;
+  }
+
+  return res;
 }
+
+/*
+vec2 world_sdf_new(vec3 pos) {
+  float d = 1e10;          
+}
+*/
 
 vec3 world_normal(float obj_id, vec3 pos) {
   vec3 normal = vec3(0.0, 1.0, 0.0);
@@ -398,45 +353,21 @@ vec3 world_normal(float obj_id, vec3 pos) {
   // assumes that the sdf is 0.0 at the given pos
   vec2 delta = vec2(0.0, 1.0) * 0.0005;
   normal = normalize(vec3(
-    sdf_for_object(obj_id, pos + delta.yxx) -
-      sdf_for_object(obj_id, pos - delta.yxx),
-    sdf_for_object(obj_id, pos + delta.xyx) -
-      sdf_for_object(obj_id, pos - delta.xyx),
-    sdf_for_object(obj_id, pos + delta.xxy) -
-      sdf_for_object(obj_id, pos - delta.xxy)
+    world_sdf(pos + delta.yxx).x -
+      world_sdf(pos - delta.yxx).x,
+    world_sdf(pos + delta.xyx).x -
+      world_sdf(pos - delta.xyx).x,
+    world_sdf(pos + delta.xxy).x -
+      world_sdf(pos - delta.xxy).x
   ));
 
   return normal;
 }
 
-vec2 compute_dist(vec3 pos) {
-  vec2 min_dist = vec2(1e10, -1);
-  for (int i = 0; i < num_objects; ++i) {
-    float obj_id = float(i);
-    float obj_dist = sdf_for_object(obj_id, pos);  
-    if (obj_dist < min_dist.x) {
-      min_dist = vec2(obj_dist, obj_id);
-    }
-  }
-  return min_dist;
-}
-
-// TODO - remove if unused
-vec2 compute_dist_old(vec3 pos,
-  float[num_objects] active_objs, int num_active) {
-
-  vec2 min_dist = vec2(1e10, -1);
-  for (int i = 0; i < num_active; ++i) {
-    float obj_id = active_objs[i];
-    float obj_dist = sdf_for_object(obj_id, pos);  
-    if (obj_dist < min_dist.x) {
-      min_dist = vec2(obj_dist, obj_id);
-    }
-  }
-  return min_dist;
-}
-
 vec2 world_intersect(vec3 ro, vec3 rd) {
+  // TODO - use the boxes to iterate through viable ranges of t
+
+  // BB should be a list of (t_min, t_max) pairs for each box
   /*
   // TODO - safe to assume that they are default-initialized?
   AABB[num_objects] boxes;
@@ -452,13 +383,14 @@ vec2 world_intersect(vec3 ro, vec3 rd) {
       active_objects[num_active] = i;  
     }
   }
-  */
+
   // activate all objects
   float[num_objects] active_objects;
   for (int i = 0; i < num_objects; ++i) {
     active_objects[i] = float(i);
   }
   int num_active = num_objects;
+  */
 
   float t_min = 0.1;
   float t_max = 1000.0;
@@ -468,9 +400,7 @@ vec2 world_intersect(vec3 ro, vec3 rd) {
   vec2 result = vec2(t_min, -1);
   for (int i = 0; i < max_steps; ++i) {
     vec3 pt = ro + result.x * rd;
-    // TODO - remove if unused
-    //vec2 dist_result = compute_dist(pt, active_objects, num_active);
-    vec2 dist_result = compute_dist(pt);
+    vec2 dist_result = world_sdf(pt);
     float obj_dist = dist_result.x;
     result.y = dist_result.y;
     // reduce precision of intersection check as distance increases
@@ -491,7 +421,7 @@ float compute_ao(vec3 pos, vec3 nor) {
   float delta_nor = 0.4 / 5.0;
   for (int i = 0; i < 5; ++i) {
     vec3 sample_pos = pos + nor * float(i) * delta_nor; 
-    vec2 dist_result = compute_dist(sample_pos);
+    vec2 dist_result = world_sdf(sample_pos);
     occ += weight * (float(i)*delta_nor - dist_result.x);
     weight *= 0.7;
   }
